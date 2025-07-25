@@ -36,7 +36,7 @@ namespace AvaloniaSearchableComboBox
         /// The default value for the <see cref="ItemsControl.ItemsPanel"/> property.
         /// </summary>
         private static readonly FuncTemplate<Panel?> DefaultPanel =
-            new(() => new VirtualizingStackPanel());
+            new(() => new StackPanel());
 
         /// <summary>
         /// Defines the <see cref="IsDropDownOpen"/> property.
@@ -217,9 +217,17 @@ namespace AvaloniaSearchableComboBox
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
         {
             base.OnAttachedToVisualTree(e);
-            if (AllItems == null && ItemsSource != null)
+            
+            if (AllItems == null)
             {
-                AllItems = ItemsSource;
+                if (ItemsSource != null)
+                {
+                    AllItems = ItemsSource;    
+                }
+                else if (Items.Count > 0)
+                {
+                    AllItems = Items.Cast<object>().ToList();
+                }
             }
         }
 
@@ -308,15 +316,8 @@ namespace AvaloniaSearchableComboBox
             {
                 if (_popup?.IsInsidePopup(source) == true)
                 {
-                    if (UpdateSelectionFromEventSource(e.Source))
-                    {
-                        _popup?.Close();
-                        e.Handled = true;
-                    }
-                }
-                else if (PseudoClasses.Contains(pcPressed))
-                {
-                    SetCurrentValue(IsDropDownOpenProperty, !IsDropDownOpen);
+                    UpdateSelectionFromEventSource(e.Source, true, false, false, false, false);
+                    IsDropDownOpen = false;
                     e.Handled = true;
                 }
             }
@@ -374,7 +375,11 @@ namespace AvaloniaSearchableComboBox
             }
             else if (change.Property == ItemsSourceProperty)
             {
-                AllItems = change.GetNewValue<IEnumerable>();
+                var newItemsSource = change.GetNewValue<IEnumerable>();
+                if (newItemsSource != null)
+                {
+                    AllItems = newItemsSource;
+                }
             }
 
             base.OnPropertyChanged(change);
@@ -408,24 +413,87 @@ namespace AvaloniaSearchableComboBox
             if (!IsDropDownOpen)
             {
                 UpdateTextFromSelectedItem();
+                SetCurrentValue(FilterTextProperty, string.Empty);
             }
         }
 
+        private bool _isFiltering;
+
         private void FilterItems()
         {
-            if (AllItems == null) return;
-
-            var filterText = FilterText;
-            if (string.IsNullOrEmpty(filterText))
-            {
-                ItemsSource = AllItems;
-                return;
-            }
-
-            var filterFunction = FilterFunction ?? DefaultFilterFunction;
-            var filteredItems = AllItems.Cast<object>().Where(item => filterFunction(item, filterText)).ToList();
+            if (_isFiltering) return;
             
-            ItemsSource = filteredItems;
+            _isFiltering = true;
+            try
+            {
+                if (AllItems == null)
+                {
+                    if (ItemsSource != null)
+                    {
+                        AllItems = ItemsSource;
+                    }
+                    else if (Items.Count > 0)
+                    {
+                        AllItems = Items.Cast<object>().ToList();
+                    }
+                    else
+                    {
+                        return;
+                    }
+                }
+
+                var filterText = FilterText;
+                
+                if (string.IsNullOrEmpty(filterText))
+                {
+                    if (ItemsSource == null)
+                    {
+                        var currentSelection = SelectedItem;
+                        Items.Clear();
+                        foreach (var item in AllItems.Cast<object>())
+                        {
+                            Items.Add(item);
+                        }
+
+                        if (currentSelection != null && Items.Contains(currentSelection))
+                        {
+                            SelectedItem = currentSelection;
+                        }
+                    }
+                    else
+                    {
+                        ItemsSource = AllItems;
+                    }
+                    return;
+                }
+
+                var filterFunction = FilterFunction ?? DefaultFilterFunction;
+                var filteredItems = AllItems.Cast<object>().Where(item => filterFunction(item, filterText)).ToList();
+
+                if (ItemsSource == null)
+                {
+                    var currentSelection = SelectedItem;
+                    Items.Clear();
+                    foreach (var item in filteredItems)
+                    {
+                        Items.Add(item);
+                    }
+
+                    if (currentSelection != null && !filteredItems.Contains(currentSelection))
+                    {
+                        SelectedItem = null;
+                        SelectedIndex = -1;
+                    }
+                }
+                else
+                {
+                    ItemsSource = filteredItems;
+                }
+            }
+            finally
+            {
+                _isFiltering = false;   
+            }
         }
 
         private static bool DefaultFilterFunction(object? item, string? filterText)
@@ -433,7 +501,19 @@ namespace AvaloniaSearchableComboBox
             if (item == null || string.IsNullOrEmpty(filterText))
                 return true;
 
-            return item.ToString()?.Contains(filterText, StringComparison.OrdinalIgnoreCase) ?? false;
+            string itemText;
+
+            //If is a SearchableComboBoxItem, use its Content
+            if (item is SearchableComboBoxItem comboBoxItem)
+            {
+                itemText = comboBoxItem.Content?.ToString() ?? string.Empty;
+            }
+            else
+            {
+                itemText = item.ToString() ?? string.Empty;
+            }
+            
+            return itemText.Contains(filterText, StringComparison.OrdinalIgnoreCase);
         }
 
         private void UpdateTextFromSelectedItem()
@@ -441,9 +521,18 @@ namespace AvaloniaSearchableComboBox
             _isUpdatingText = true;
             try
             {
-                var text = SelectedItem?.ToString() ?? string.Empty;
+                string text;
+
+                if (SelectedItem is SearchableComboBoxItem item)
+                {
+                    text = item.Content?.ToString() ?? string.Empty;
+                }
+                else
+                {
+                    text = SelectedItem?.ToString() ?? string.Empty;
+                }
+                
                 SetCurrentValue(TextProperty, text);
-                SetCurrentValue(FilterTextProperty, text);
                 
                 if (_editableTextBox != null)
                 {
