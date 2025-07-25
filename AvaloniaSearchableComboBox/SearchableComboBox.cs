@@ -322,13 +322,26 @@ namespace AvaloniaSearchableComboBox
                 if (_popup?.IsInsidePopup(source) == true)
                 {
                     UpdateSelectionFromEventSource(e.Source, true, false, false, false, false);
+                    if (SelectedItem != null)
+                    {
+                        var selectedItem = SelectedItem;
+                        
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                        {
+                            SetCurrentValue(SelectedItemProperty, null);
+                            SetCurrentValue(SelectedItemProperty, selectedItem);
+                        }, Avalonia.Threading.DispatcherPriority.DataBind);
+
+                        UpdateTextFromSelectedItem();
+                        SetCurrentValue(FilterTextProperty, string.Empty);
+                    }
+                    
                     IsDropDownOpen = false;
                     e.Handled = true;
                 }
             }
 
-            PseudoClasses.Set(pcPressed, true);
-            e.Handled = true;
+            PseudoClasses.Set(pcPressed, false);
             base.OnPointerReleased(e);
         }
 
@@ -404,10 +417,9 @@ namespace AvaloniaSearchableComboBox
             else if (change.Property == ItemsSourceProperty)
             {
                 var newItemsSource = change.GetNewValue<IEnumerable>();
-                if (newItemsSource != null)
+                if (newItemsSource != null && !_isFiltering && AllItems == null)
                 {
                     AllItems = newItemsSource;
-                    FilterItems();
                 }
             }
 
@@ -432,17 +444,9 @@ namespace AvaloniaSearchableComboBox
                 }
             }
 
-            if (ItemsSource == null)
+            if (ItemsSource != AllItems)
             {
-                Items.Clear();
-                foreach (var item in AllItems.Cast<object>())
-                {
-                    Items.Add(item);
-                }
-            }
-            else
-            {
-                ItemsSource = AllItems;
+                SetCurrentValue(ItemsSourceProperty, AllItems);
             }
         }
 
@@ -455,7 +459,13 @@ namespace AvaloniaSearchableComboBox
             if (!string.IsNullOrEmpty(newText) && SelectedItem != null)
             {
                 var selectedText = GetDisplayText(SelectedItem);
-                if (newText != selectedText)
+                if (newText == selectedText)
+                {
+                    SetCurrentValue(TextProperty, newText);
+                    SetCurrentValue(IsDropDownOpenProperty, false); 
+                    return;
+                }
+                else
                 {
                     _supressTextUpdate = true;
                     try
@@ -474,9 +484,13 @@ namespace AvaloniaSearchableComboBox
             SetCurrentValue(TextProperty, newText);
             SetCurrentValue(FilterTextProperty, newText);
 
-            if (!IsDropDownOpen && !string.IsNullOrEmpty(newText))
+            if (!IsDropDownOpen)
             {
                 SetCurrentValue(IsDropDownOpenProperty, true);
+            }
+            else
+            {
+                FilterItems();
             }
         }
 
@@ -491,7 +505,6 @@ namespace AvaloniaSearchableComboBox
 
         private void OnTextBoxLostFocus(object? sender, RoutedEventArgs e)
         {
-            // Update text to match selected item when losing focus
             if (!IsDropDownOpen)
             {
                 if (SelectedItem == null)
@@ -517,6 +530,7 @@ namespace AvaloniaSearchableComboBox
                 }
                 
                 SetCurrentValue(FilterTextProperty, string.Empty);
+                EnsureAllItemsVisible();
             }
         }
 
@@ -549,25 +563,19 @@ namespace AvaloniaSearchableComboBox
                 
                 if (string.IsNullOrEmpty(filterText))
                 {
-                    EnsureAllItemsVisible();
+                    if (ItemsSource != AllItems)
+                    {
+                        SetCurrentValue(ItemsSourceProperty, AllItems);
+                    }
                     return;
                 }
 
                 var filterFunction = FilterFunction ?? DefaultFilterFunction;
                 var filteredItems = AllItems.Cast<object>().Where(item => filterFunction(item, filterText)).ToList();
 
-                if (ItemsSource == null)
-                {
-                    Items.Clear();
-                    foreach (var item in filteredItems)
-                    {
-                        Items.Add(item);
-                    }
-                }
-                else
-                {
-                    ItemsSource = filteredItems;
-                }
+                var currentSelected = SelectedItem;
+                SetCurrentValue(ItemsSourceProperty, new ObservableCollection<object>(filteredItems));
+                
             }
             finally
             {
@@ -597,6 +605,8 @@ namespace AvaloniaSearchableComboBox
 
         private void UpdateTextFromSelectedItem()
         {
+            if (_isFiltering) return;
+            
             _isUpdatingText = true;
             try
             {
@@ -608,6 +618,7 @@ namespace AvaloniaSearchableComboBox
                 {
                     _editableTextBox.Text = text;
                 }
+                
             }
             finally
             {
@@ -642,19 +653,6 @@ namespace AvaloniaSearchableComboBox
             
             TryFocusSelectedItem();
             DropDownOpened?.Invoke(this, EventArgs.Empty);
-            /*
-            TryFocusSelectedItem();
-
-            _subscriptionsOnOpen.Clear();
-
-            this.GetObservable(IsVisibleProperty).Subscribe(IsVisibleChanged).Equals(_subscriptionsOnOpen);
-
-            foreach (var parent in this.GetVisualAncestors().OfType<Control>())
-            {
-                parent.GetObservable(IsVisibleProperty).Subscribe(IsVisibleChanged).Equals(_subscriptionsOnOpen);
-            }
-
-            DropDownOpened?.Invoke(this, EventArgs.Empty);*/
         }
 
         private void IsVisibleChanged(bool isVisible)
