@@ -297,16 +297,21 @@ namespace AvaloniaSearchableComboBox
                 return;
             }
 
-            if (IsDropDownOpen)
+            if (!IsDropDownOpen)
             {
-                SetCurrentValue(IsDropDownOpenProperty, false);
-                e.Handled = true;
+                if (string.IsNullOrEmpty(FilterText))
+                {
+                    EnsureAllItemsVisible();
+                }
+                SetCurrentValue(IsDropDownOpenProperty, true);
             }
             else
             {
-                PseudoClasses.Set(pcPressed, true);
+                SetCurrentValue(IsDropDownOpenProperty, false);
             }
 
+            PseudoClasses.Set(pcPressed, true);
+            e.Handled = true;
             base.OnPointerPressed(e);
         }
 
@@ -322,7 +327,8 @@ namespace AvaloniaSearchableComboBox
                 }
             }
 
-            PseudoClasses.Set(pcPressed, false);
+            PseudoClasses.Set(pcPressed, true);
+            e.Handled = true;
             base.OnPointerReleased(e);
         }
 
@@ -410,7 +416,21 @@ namespace AvaloniaSearchableComboBox
 
         private void EnsureAllItemsVisible()
         {
-            if (AllItems == null) return;
+            if (AllItems == null)
+            {
+                if (ItemsSource != null)
+                {
+                    AllItems = ItemsSource;
+                }
+                else if (Items.Count > 0)
+                {
+                    AllItems = Items.Cast<object>().ToList();
+                }
+                else
+                {
+                    return;
+                }
+            }
 
             if (ItemsSource == null)
             {
@@ -425,8 +445,6 @@ namespace AvaloniaSearchableComboBox
                 ItemsSource = AllItems;
             }
         }
-        
-        
 
         private void OnTextBoxTextChanged(object? sender, TextChangedEventArgs e)
         {
@@ -617,6 +635,14 @@ namespace AvaloniaSearchableComboBox
 
         private void PopupOpened(object? sender, EventArgs e)
         {
+            if (string.IsNullOrEmpty(FilterText))
+            {
+                EnsureAllItemsVisible();
+            }
+            
+            TryFocusSelectedItem();
+            DropDownOpened?.Invoke(this, EventArgs.Empty);
+            /*
             TryFocusSelectedItem();
 
             _subscriptionsOnOpen.Clear();
@@ -628,7 +654,7 @@ namespace AvaloniaSearchableComboBox
                 parent.GetObservable(IsVisibleProperty).Subscribe(IsVisibleChanged).Equals(_subscriptionsOnOpen);
             }
 
-            DropDownOpened?.Invoke(this, EventArgs.Empty);
+            DropDownOpened?.Invoke(this, EventArgs.Empty);*/
         }
 
         private void IsVisibleChanged(bool isVisible)
