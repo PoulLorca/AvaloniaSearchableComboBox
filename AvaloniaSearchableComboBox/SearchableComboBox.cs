@@ -358,16 +358,38 @@ namespace AvaloniaSearchableComboBox
             }
         }
 
+        private bool _supressTextUpdate;
+        
+
         protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
         {
             if (change.Property == SelectedItemProperty)
             {
-                UpdateTextFromSelectedItem();
+                if (!_supressTextUpdate)
+                {
+                    UpdateTextFromSelectedItem();
+                }
                 TryFocusSelectedItem();
             }
             else if (change.Property == IsDropDownOpenProperty)
             {
-                PseudoClasses.Set(pcDropdownOpen, change.GetNewValue<bool>());
+                var isOpen = change.GetNewValue<bool>();
+                PseudoClasses.Set(pcDropdownOpen, isOpen);
+
+                if (isOpen)
+                {
+                    if (string.IsNullOrEmpty(FilterText))
+                    {
+                        EnsureAllItemsVisible();
+                    }
+                }
+                else
+                {
+                    if (!_isUpdatingText)
+                    {
+                        UpdateTextFromSelectedItem();
+                    }
+                }
             }
             else if (change.Property == FilterTextProperty)
             {
@@ -379,17 +401,58 @@ namespace AvaloniaSearchableComboBox
                 if (newItemsSource != null)
                 {
                     AllItems = newItemsSource;
+                    FilterItems();
                 }
             }
 
             base.OnPropertyChanged(change);
         }
 
+        private void EnsureAllItemsVisible()
+        {
+            if (AllItems == null) return;
+
+            if (ItemsSource == null)
+            {
+                Items.Clear();
+                foreach (var item in AllItems.Cast<object>())
+                {
+                    Items.Add(item);
+                }
+            }
+            else
+            {
+                ItemsSource = AllItems;
+            }
+        }
+        
+        
+
         private void OnTextBoxTextChanged(object? sender, TextChangedEventArgs e)
         {
             if (_isUpdatingText) return;
 
             var newText = _editableTextBox?.Text ?? string.Empty;
+
+            if (!string.IsNullOrEmpty(newText) && SelectedItem != null)
+            {
+                var selectedText = GetDisplayText(SelectedItem);
+                if (newText != selectedText)
+                {
+                    _supressTextUpdate = true;
+                    try
+                    {
+                        SelectedItem = null;
+                        SelectedIndex = -1;
+                    }
+                    finally
+                    {
+                        _supressTextUpdate = false;
+                    }
+                }
+            }
+            
+            
             SetCurrentValue(TextProperty, newText);
             SetCurrentValue(FilterTextProperty, newText);
 
@@ -401,6 +464,7 @@ namespace AvaloniaSearchableComboBox
 
         private void OnTextBoxGotFocus(object? sender, GotFocusEventArgs e)
         {
+            
             if (!string.IsNullOrEmpty(FilterText))
             {
                 SetCurrentValue(IsDropDownOpenProperty, true);
@@ -412,7 +476,28 @@ namespace AvaloniaSearchableComboBox
             // Update text to match selected item when losing focus
             if (!IsDropDownOpen)
             {
-                UpdateTextFromSelectedItem();
+                if (SelectedItem == null)
+                {
+                    _isUpdatingText = true;
+                    try
+                    {
+                        SetCurrentValue(TextProperty, string.Empty);
+                        SetCurrentValue(FilterTextProperty, string.Empty);
+                        if (_editableTextBox != null)
+                        {
+                            _editableTextBox.Text = string.Empty;
+                        }
+                    }
+                    finally
+                    {
+                        _isUpdatingText = false;
+                    }
+                }
+                else
+                {
+                    UpdateTextFromSelectedItem();    
+                }
+                
                 SetCurrentValue(FilterTextProperty, string.Empty);
             }
         }
@@ -446,24 +531,7 @@ namespace AvaloniaSearchableComboBox
                 
                 if (string.IsNullOrEmpty(filterText))
                 {
-                    if (ItemsSource == null)
-                    {
-                        var currentSelection = SelectedItem;
-                        Items.Clear();
-                        foreach (var item in AllItems.Cast<object>())
-                        {
-                            Items.Add(item);
-                        }
-
-                        if (currentSelection != null && Items.Contains(currentSelection))
-                        {
-                            SelectedItem = currentSelection;
-                        }
-                    }
-                    else
-                    {
-                        ItemsSource = AllItems;
-                    }
+                    EnsureAllItemsVisible();
                     return;
                 }
 
@@ -472,17 +540,10 @@ namespace AvaloniaSearchableComboBox
 
                 if (ItemsSource == null)
                 {
-                    var currentSelection = SelectedItem;
                     Items.Clear();
                     foreach (var item in filteredItems)
                     {
                         Items.Add(item);
-                    }
-
-                    if (currentSelection != null && !filteredItems.Contains(currentSelection))
-                    {
-                        SelectedItem = null;
-                        SelectedIndex = -1;
                     }
                 }
                 else
@@ -521,16 +582,7 @@ namespace AvaloniaSearchableComboBox
             _isUpdatingText = true;
             try
             {
-                string text;
-
-                if (SelectedItem is SearchableComboBoxItem item)
-                {
-                    text = item.Content?.ToString() ?? string.Empty;
-                }
-                else
-                {
-                    text = SelectedItem?.ToString() ?? string.Empty;
-                }
+                var text = GetDisplayText(SelectedItem);
                 
                 SetCurrentValue(TextProperty, text);
                 
@@ -543,6 +595,18 @@ namespace AvaloniaSearchableComboBox
             {
                 _isUpdatingText = false;
             }
+        }
+
+        private string GetDisplayText(object? item)
+        {
+            if (item == null) return string.Empty;
+
+            if (item is SearchableComboBoxItem comboBoxItem)
+            {
+                return comboBoxItem.Content?.ToString() ?? string.Empty;
+            }
+            
+            return item.ToString() ?? string.Empty;
         }
 
         private void PopupClosed(object? sender, EventArgs e)
