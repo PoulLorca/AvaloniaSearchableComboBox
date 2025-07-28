@@ -38,6 +38,41 @@ In your main project, reference the library and include the style resource in `A
 </Application.Resources>
 ```
 
+---
+
+## 📦 NuGet Installation (Quick Start)
+
+If you prefer an even simpler option, you can install the control via NuGet:
+
+```bash
+dotnet add package AvaloniaSearchableComboBox
+```
+
+Then, configure your App.axaml to include the control's style:
+
+```xml
+<Application.Resources>
+  <ResourceDictionary>
+    <ResourceDictionary.MergedDictionaries>
+      <ResourceInclude Source="avares://AvaloniaSearchableComboBox/Themes/SearchableComboBox.axaml" />
+    </ResourceDictionary.MergedDictionaries>
+  </ResourceDictionary>
+</Application.Resources>
+```
+Finally, you can use it in your views like this:
+
+```xml
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:sc="https://searchable-combobox.com">
+
+    <sc:SearchableComboBox Items="{Binding Items}" />
+
+</Window>
+```
+
+---
+
 ## 🍎 Example with Simple Data (Strings)
 
 ### XAML
