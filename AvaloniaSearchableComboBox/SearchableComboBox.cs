@@ -103,6 +103,8 @@ namespace AvaloniaSearchableComboBox
         private readonly CompositeDisposable _subscriptionsOnOpen = new CompositeDisposable();
         private IEnumerable? _allItems;
         private bool _isUpdatingText;
+        private bool _isFiltering;
+        private bool _suppressTextUpdate;
 
         /// <summary>
         /// Initializes static members of the <see cref="SearchableComboBox"/> class.
@@ -321,23 +323,15 @@ namespace AvaloniaSearchableComboBox
             {
                 if (_popup?.IsInsidePopup(source) == true)
                 {
-                    UpdateSelectionFromEventSource(e.Source, true, false, false, false, false);
-                    if (SelectedItem != null)
+                    
+                    if (UpdateSelectionFromEventSource(e.Source))
                     {
-                        var selectedItem = SelectedItem;
-                        
-                        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                        {
-                            SetCurrentValue(SelectedItemProperty, null);
-                            SetCurrentValue(SelectedItemProperty, selectedItem);
-                        }, Avalonia.Threading.DispatcherPriority.DataBind);
-
                         UpdateTextFromSelectedItem();
                         SetCurrentValue(FilterTextProperty, string.Empty);
+                        EnsureAllItemsVisible();
+                        SetCurrentValue(IsDropDownOpenProperty, false);
+                        e.Handled = true;
                     }
-                    
-                    IsDropDownOpen = false;
-                    e.Handled = true;
                 }
             }
 
@@ -384,7 +378,7 @@ namespace AvaloniaSearchableComboBox
         {
             if (change.Property == SelectedItemProperty)
             {
-                if (!_supressTextUpdate)
+                if (!_suppressTextUpdate && !_isUpdatingText)
                 {
                     UpdateTextFromSelectedItem();
                 }
@@ -425,6 +419,8 @@ namespace AvaloniaSearchableComboBox
 
             base.OnPropertyChanged(change);
         }
+        
+        
 
         private void EnsureAllItemsVisible()
         {
@@ -456,6 +452,7 @@ namespace AvaloniaSearchableComboBox
 
             var newText = _editableTextBox?.Text ?? string.Empty;
 
+            // CORRECCIÓN: Mejor manejo de la selección cuando cambia el texto
             if (!string.IsNullOrEmpty(newText) && SelectedItem != null)
             {
                 var selectedText = GetDisplayText(SelectedItem);
@@ -467,15 +464,16 @@ namespace AvaloniaSearchableComboBox
                 }
                 else
                 {
-                    _supressTextUpdate = true;
+                    // Limpiar selección cuando el texto no coincide
+                    _suppressTextUpdate = true;
                     try
                     {
-                        SelectedItem = null;
-                        SelectedIndex = -1;
+                        SetCurrentValue(SelectedItemProperty, null);
+                        SetCurrentValue(SelectedIndexProperty, -1);
                     }
                     finally
                     {
-                        _supressTextUpdate = false;
+                        _suppressTextUpdate = false;
                     }
                 }
             }
@@ -533,8 +531,6 @@ namespace AvaloniaSearchableComboBox
                 EnsureAllItemsVisible();
             }
         }
-
-        private bool _isFiltering;
 
         private void FilterItems()
         {
@@ -630,12 +626,65 @@ namespace AvaloniaSearchableComboBox
         {
             if (item == null) return string.Empty;
 
+            
+            if (DisplayMemberBinding != null && item != null)
+            {
+                try
+                {
+                    
+                    if (DisplayMemberBinding is Binding binding && !string.IsNullOrEmpty(binding.Path))
+                    {
+                        var propertyPath = binding.Path;
+                        var propertyValue = GetPropertyValue(item, propertyPath);
+                        return propertyValue?.ToString() ?? string.Empty;
+                    }
+                    else
+                    {
+                        var tempTextBlock = new TextBlock
+                        {
+                            DataContext = item
+                        };
+                        tempTextBlock.Bind(TextBlock.TextProperty, DisplayMemberBinding);
+                        return tempTextBlock.Text ?? string.Empty;
+                    }
+                }
+                catch
+                {
+                    // Fall back to ToString() if binding fails
+                }
+            }
+
             if (item is SearchableComboBoxItem comboBoxItem)
             {
                 return comboBoxItem.Content?.ToString() ?? string.Empty;
             }
             
             return item.ToString() ?? string.Empty;
+        }
+        
+        private object? GetPropertyValue(object obj, string propertyPath)
+        {
+            try
+            {
+                var parts = propertyPath.Split('.');
+                object? current = obj;
+                
+                foreach (var part in parts)
+                {
+                    if (current == null) return null;
+                    
+                    var property = current.GetType().GetProperty(part);
+                    if (property == null) return null;
+                    
+                    current = property.GetValue(current);
+                }
+                
+                return current;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private void PopupClosed(object? sender, EventArgs e)
@@ -691,7 +740,8 @@ namespace AvaloniaSearchableComboBox
             {
                 if (dropdownItem.IsFocused)
                 {
-                    SelectedIndex = IndexFromContainer(dropdownItem);
+                    var newIndex = IndexFromContainer(dropdownItem);
+                    SetCurrentValue(SelectedIndexProperty, newIndex);
                     break;
                 }
             }
@@ -735,10 +785,11 @@ namespace AvaloniaSearchableComboBox
         /// </summary>
         public void Clear()
         {
-            SelectedItem = null;
-            SelectedIndex = -1;
+            SetCurrentValue(SelectedItemProperty, null);
+            SetCurrentValue(SelectedIndexProperty, -1);
             SetCurrentValue(TextProperty, string.Empty);
             SetCurrentValue(FilterTextProperty, string.Empty);
+            EnsureAllItemsVisible();
         }
     }
 }
