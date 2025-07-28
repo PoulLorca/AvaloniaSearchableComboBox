@@ -451,8 +451,7 @@ namespace AvaloniaSearchableComboBox
             if (_isUpdatingText) return;
 
             var newText = _editableTextBox?.Text ?? string.Empty;
-
-            // CORRECCIÓN: Mejor manejo de la selección cuando cambia el texto
+            
             if (!string.IsNullOrEmpty(newText) && SelectedItem != null)
             {
                 var selectedText = GetDisplayText(SelectedItem);
@@ -464,7 +463,6 @@ namespace AvaloniaSearchableComboBox
                 }
                 else
                 {
-                    // Limpiar selección cuando el texto no coincide
                     _suppressTextUpdate = true;
                     try
                     {
